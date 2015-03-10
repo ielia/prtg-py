@@ -4,7 +4,9 @@ Python library for Paessler's PRTG (http://www.paessler.com/)
 """
 
 import logging
+import os
 import shelve
+import tempfile
 
 from prtg.exceptions import UnknownObjectType
 from prtg.models import PrtgObject
@@ -20,14 +22,20 @@ class Cache(object):
     present, it creates them.
     """
 
-    def __init__(self, cache_path='/tmp/prtg.cache'):
+    __FILE_PREFIX = 'prtg'
+    __FILE_SUFFIX = '.cache'
+    __DIR = None
+
+    def __init__(self):
         """
-        :param cache_path: Cache filename.
+        Creates a temporary file to be used by shelve.
         """
-        self.cache_path = cache_path
-        # TODO: See if I can remove this.
-        with shelve.open(self.cache_path):
-            pass
+        self.cache_fd, self.cache_filename = tempfile.mkstemp(dir=self.__DIR, prefix=self.__FILE_PREFIX,
+                                                              suffix=self.__FILE_SUFFIX)
+        os.close(self.cache_fd)
+        # TODO: Figure out how to do this gracefully and not leaving a potential (but insignificant) security hole.
+        os.remove(self.cache_filename)
+        shelve.open(self.cache_filename).close()
 
     def write_content(self, content, force=False):
         """
@@ -35,7 +43,7 @@ class Cache(object):
         :param content: List of instances of prtg.models.PrtgObject to put in the cache.
         :param force: Forces the insertion of the object in the cache.
         """
-        with shelve.open(self.cache_path) as cache:
+        with shelve.open(self.cache_filename) as cache:
             logging.debug('Writing Cache')
             for obj in content:
                 if not isinstance(obj, PrtgObject):
@@ -54,7 +62,7 @@ class Cache(object):
         :return: The requested object, that has to exist.
         :raise KeyError: If no such id is in the cache.
         """
-        with shelve.open(self.cache_path) as cache:
+        with shelve.open(self.cache_filename) as cache:
             return cache[str(objectid)]
 
     def get_content(self, content_type):
@@ -63,7 +71,7 @@ class Cache(object):
         :param content_type: Content type to retrieve.
         :yield: Objects contained in the cache with the specified content type.
         """
-        with shelve.open(self.cache_path) as cache:
+        with shelve.open(self.cache_filename) as cache:
             for objid, value in cache.items():  # items() is a generator, thus this usage.
                 try:
                     if value.content_type == content_type:
@@ -71,3 +79,12 @@ class Cache(object):
                 except AttributeError:
                     logging.warning('Bad object returned from cache: {}'.format(value))
                     continue
+
+    def __del__(self):
+        if self.cache_filename:
+            try:
+                os.remove(self.cache_filename)
+                # os.close(self.cache_fd)
+            except:
+                logging.error("Couldn't delete cache file '{}'".format(self.cache_filename))
+                raise
