@@ -105,4 +105,5 @@
 
 For the complete documentation, go to `http://{PRTG_HOST}:{PRTG_PORT}/api.htm?tabid=1`
 
-There is also a demo node at `https://prtg.paessler.com/api.htm?username=demo&password=demodemo&tabid=1`
+There is also a demo node at [https://prtg.paessler.com/api.htm?username=demo&password=demodemo&tabid=1]
+(https://prtg.paessler.com/api.htm?username=demo&password=demodemo&tabid=1)
