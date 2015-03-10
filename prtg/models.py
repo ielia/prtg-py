@@ -18,7 +18,6 @@ class PrtgObject(object):
     objid = None
 
     column_table = {
-
         'all': [
             'objid', 'type', 'tags', 'active', 'name', 'status', 'parentid', 'result',
         ],
@@ -163,6 +162,8 @@ class Query(object):
     hold the response from the server.
     """
 
+    __DEFAULT_MAXIMUM = 500
+
     targets = {
         'table': {'extension': '.xml?'}, 'getstatus': {'extension': '.xml?'}, 'getpasshash': {'extension': '.htm?'},
         'setobjectproperty': {'extension': '.htm?'}, 'getobjectproperty': {'extension': '.htm?'}
@@ -175,7 +176,8 @@ class Query(object):
     method = 'GET'
     default_columns = ['objid', 'parentid', 'name', 'tags', 'active', 'status']
 
-    def __init__(self, client, target, maximum=5, content='', objid=None, name=None, value=None, parent_value=None):
+    def __init__(self, client, target, maximum=__DEFAULT_MAXIMUM, content='', objid=None, name=None, value=None,
+                 parent_value=None):
         """
         :param client: prtg.client.Client instance.
         :param target: Target string (e.g.: 'table').
