@@ -86,11 +86,7 @@ class TestRuleChain(unittest.TestCase):
         rule_chain = RuleChain(rule_dict1, rule_dict2, rule_dict3, rule_dict4)
         parent = build_common_device({'ta', 'tb'})
         changes = rule_chain.apply(device, parent)
-        self.assertEqual(list, type(device.tags))
-        self.assertEqual({'te', 'th'}.union(parent.tags), set(device.tags))
-        self.assertEqual({'tags'}, changes.keys())
-        self.assertEqual(str, type(changes['tags']))
-        self.assertEqual({'te', 'th'}, set(changes['tags'].split(' ')))
+        self._assert_device_tags_and_changes({'te', 'th'}, True, device, parent, changes)
 
     def test_no_match(self):
         device = build_common_device(['ta', 'tb', 'tc', 'td'], 'some other device')
@@ -98,8 +94,7 @@ class TestRuleChain(unittest.TestCase):
         rule_chain = RuleChain(rule_dict)
         parent = build_common_device({'ta', 'tb'})
         changes = rule_chain.apply(device, parent)
-        self.assertEqual({'tc', 'td'}.union(parent.tags), set(device.tags))
-        self.assertEqual(set(), changes.keys())
+        self._assert_device_tags_and_changes({'tc', 'td'}, False, device, parent, changes)
 
     def test_no_changes(self):
         device = build_common_device(['ta', 'tb', 'tc'])
@@ -108,8 +103,7 @@ class TestRuleChain(unittest.TestCase):
         rule_chain = RuleChain(rule_dict1, rule_dict2)
         parent = build_common_device({'ta'})
         changes = rule_chain.apply(device, parent)
-        self.assertEqual({'tb', 'tc'}.union(parent.tags), set(device.tags))
-        self.assertEqual(set(), changes.keys())
+        self._assert_device_tags_and_changes({'tb', 'tc'}, False, device, parent, changes)
 
     def test_no_changes_when_cleaning_all(self):
         device = build_common_device(['ta'])
@@ -117,5 +111,30 @@ class TestRuleChain(unittest.TestCase):
         rule_chain = RuleChain(rule_dict)
         parent = build_common_device({'ta'})
         changes = rule_chain.apply(device, parent)
-        self.assertEqual(set(parent.tags), set(device.tags))
-        self.assertEqual(set(), changes.keys())
+        self._assert_device_tags_and_changes(set(), False, device, parent, changes)
+
+    def test_tags_chain_no_update_in_the_middle(self):
+        # 'ta' is inherited from the parent (so it is not present in the new value);
+        # 'tb', 'tc' and 'td are removed by no-update "value";
+        # 'te' is added by no-update "value";
+        # 'tf' is added by no-update "value" and then removed by "remove";
+        # 'tg' is added by "value".
+        device = build_common_device(['ta', 'tb', 'tc'])
+        rule_dict1 = build_tags_rule_dict(True, ['ta', 'td'], ['ta', 'tc'])
+        rule_dict2 = build_tags_rule_dict(False, ['te', 'tf'])
+        rule_dict3 = build_tags_rule_dict(True, ['tg'], ['tf'])
+        rule_chain = RuleChain(rule_dict1, rule_dict2, rule_dict3)
+        parent = build_common_device({'ta'})
+        changes = rule_chain.apply(device, parent)
+        self._assert_device_tags_and_changes({'te', 'tg'}, True, device, parent, changes)
+
+    def _assert_device_tags_and_changes(self, expected_new_value_dict, changed, device, parent, changes):
+        self.assertEqual(list, type(device.tags))
+        self.assertEqual(expected_new_value_dict.union(parent.tags), set(device.tags))
+        if changed:
+            self.assertEqual({'tags'}, changes.keys())
+            changed_tags = changes['tags']
+            self.assertEqual(str, type(changed_tags))
+            self.assertEqual(expected_new_value_dict, set(changed_tags.split(' ')))
+        else:
+            self.assertEqual(set(), changes.keys())
