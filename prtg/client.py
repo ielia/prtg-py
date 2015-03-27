@@ -12,6 +12,25 @@ from prtg.models import Sensor, Device, Group, Status, PrtgObject
 from prtg.exceptions import UnknownResponse
 
 
+class PrtgEncoder(object):
+    """
+    PRTG object encoder.
+    """
+
+    # TODO: Change
+    @staticmethod
+    def encode_dict(entity_dict, entity_type):
+        attributes = dict()
+        for key, value in entity_dict.items():
+            attributes[key] = value
+        if entity_type == 'groups':
+            return Group(**attributes)
+        if entity_type == 'devices':
+            return Device(**attributes)
+        if entity_type == 'sensors':
+            return Sensor(**attributes)
+
+
 class Connection(object):
     """
     PRTG Connection Object. It holds a response list. It is used by Client only once per query.
@@ -33,15 +52,9 @@ class Connection(object):
         # TODO: Improve this matching.
         if any([tag == 'groups', tag == 'devices', tag == 'sensors']):
             for item in response.findall('item'):
-                attributes = dict()
-                for attribute in item:
-                    attributes[attribute.tag] = attribute.text
-                if tag == 'groups':
-                    out.append(Group(**attributes))
-                if tag == 'devices':
-                    out.append(Device(**attributes))
-                if tag == 'sensors':
-                    out.append(Sensor(**attributes))
+                entity = PrtgEncoder.encode_dict(dict([(attribute.tag, attribute.text) for attribute in item]), tag)
+                if entity is not None:
+                    out.append(entity)
 
         if tag == 'status':
             attributes = dict()

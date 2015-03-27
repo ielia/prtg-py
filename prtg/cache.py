@@ -9,7 +9,7 @@ import shelve
 import tempfile
 
 from prtg.exceptions import UnknownObjectType
-from prtg.models import PrtgObject
+from prtg.models import CONTENT_TYPE_ALL, PrtgObject
 
 
 class Cache(object):
@@ -48,9 +48,13 @@ class Cache(object):
             for obj in content:
                 if not isinstance(obj, PrtgObject):
                     raise UnknownObjectType
-                if not str(obj.objid) in cache or force:
+                if not str(obj.objid) in cache:
                     # TODO: Compare new objects with cached objects.
-                    logging.debug('Writing object {} to cache'.format(str(obj.objid)))
+                    logging.debug('Writing new object {} to cache'.format(str(obj.objid)))
+                    cache[str(obj.objid)] = obj
+                elif force:
+                    logging.debug('Updating object {} in cache'.format(str(obj.objid)))
+                    obj.changed = True
                     cache[str(obj.objid)] = obj
                 else:
                     logging.debug('Object {} already cached'.format(str(obj.objid)))
@@ -74,11 +78,21 @@ class Cache(object):
         with shelve.open(self.cache_filename) as cache:
             for objid, value in cache.items():  # items() is a generator, thus this usage.
                 try:
-                    if value.content_type == content_type:
+                    if content_type == CONTENT_TYPE_ALL or value.content_type == content_type:
                         yield value
                 except AttributeError:
                     logging.warning('Bad object returned from cache: {}'.format(value))
-                    continue
+
+    def get_changed_content(self, content_type):
+        """
+        Generator that retrieves changed objects by content type.
+        :param content_type: Content type to retrieve.
+        :yield: Objects contained in the cache with the specified content type, that have been changed in the life of
+                the cache.
+        """
+        for value in self.get_content(content_type):
+            if value.changed:
+                yield value
 
     def __del__(self):
         if self.cache_filename:

@@ -13,12 +13,16 @@ from prtg.exceptions import BadTarget
 INHERITED_PROPS = {'tags'}
 LIST_TYPE_PROPS = {'tags'}
 
+CONTENT_TYPE_ALL = 'all'
+CONTENT_TYPES = ['groups', 'devices', 'sensors']
+
 
 class PrtgObject(object):
     """
     PRTG base object.
     """
 
+    changed = False
     content_type = 'prtg'
     objid = None
 
@@ -68,10 +72,11 @@ class PrtgObject(object):
                     value = []
                 if inherited_values:
                     value += inherited_values
-        if key == 'objid':
-            value = int(value)
-        if key == 'parentid':
-            value = int(value)
+        # This was commented out because we found non-integer ids.
+        # if key == 'objid':
+        #     value = int(value)
+        # if key == 'parentid':
+        #     value = int(value)
         self.__setattr__(key, value)
 
 
