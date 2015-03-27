@@ -1,9 +1,10 @@
 import unittest
 
-from prtg.models import Device, NameMatch, RuleChain
+from prtg.models import Device, NameMatch, RuleChain, Sensor
 
 
 DEVICE_COMMON_ARGS = {'objid': 123, 'name': 'aba'}
+SENSOR_COMMON_ARGS = {'objid': 456, 'name': 'lala'}
 
 
 def build_common_device(tags, name='a device'):
@@ -13,7 +14,23 @@ def build_common_device(tags, name='a device'):
     return Device(**device_args)
 
 
+def build_common_sensor(device, sensor_name='a sensor'):
+    sensor_args = SENSOR_COMMON_ARGS.copy()
+    sensor_args['name'] = sensor_name
+    sensor_args['parentid'] = device.parentid
+    return Sensor(**sensor_args)
+
+
 def build_tags_rule_dict(update, value=None, remove=None, pattern='^a'):
+    rule = {'attribute': 'name', 'pattern': pattern, 'prop': 'tags', 'update': update}
+    if value is not None:
+        rule['value'] = value
+    if remove is not None:
+        rule['remove'] = remove
+    return rule
+
+
+def build_sensor_naming_rule_dict(update, value=None, remove=None, pattern='^la'):
     rule = {'attribute': 'name', 'pattern': pattern, 'prop': 'tags', 'update': update}
     if value is not None:
         rule['value'] = value
@@ -128,6 +145,20 @@ class TestRuleChain(unittest.TestCase):
         changes = rule_chain.apply(device, parent)
         self._assert_device_tags_and_changes({'te', 'tg'}, True, device, parent, changes)
 
+    @unittest.skip('Not implemented yet')
+    def test_renaming_sensors(self):
+        # 'ta' is inherited from the parent (so it is not present in the new value);
+        # 'tb', 'tc' and 'td are removed by no-update "value";
+        # 'te' is added by no-update "value";
+        # 'tf' is added by no-update "value" and then removed by "remove";
+        # 'tg' is added by "value".
+        parent = build_common_device({'some-tag'})
+        sensor = build_common_sensor(parent)
+        rule_dict = build_sensor_naming_rule_dict(False, [{'pattern': '{parent.name} - {self.name}'}])
+        rule_chain = RuleChain(rule_dict)
+        changes = rule_chain.apply(sensor, parent)
+        self._assert_sensor_naming_changes('a device - a sensor', 'a device', True, sensor, parent, changes)
+
     def _assert_device_tags_and_changes(self, expected_new_value_dict, changed, device, parent, changes):
         self.assertEqual(list, type(device.tags))
         self.assertEqual(expected_new_value_dict.union(parent.tags), set(device.tags))
@@ -136,5 +167,18 @@ class TestRuleChain(unittest.TestCase):
             changed_tags = changes['tags']
             self.assertEqual(str, type(changed_tags))
             self.assertEqual(expected_new_value_dict, set(changed_tags.split(' ')))
+        else:
+            self.assertEqual(set(), changes.keys())
+
+    def _assert_sensor_naming_changes(self, expected_new_name, expected_parent_name, changed, sensor, parent, changes):
+        self.assertEqual(list, type(sensor.name))
+        self.assertEqual(list, type(parent.name))
+        self.assertEqual(expected_new_name, sensor.name)
+        self.assertEqual(expected_parent_name, parent.name)
+        if changed:
+            self.assertEqual({'name'}, changes.keys())
+            changed_name = changes['name']
+            self.assertEqual(str, type(changed_name))
+            self.assertEqual(expected_new_name, changed_name)
         else:
             self.assertEqual(set(), changes.keys())
