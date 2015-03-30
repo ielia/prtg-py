@@ -11,6 +11,7 @@ def build_common_device(tags, name='a device'):
     device_args = DEVICE_COMMON_ARGS.copy()
     device_args['tags'] = tags
     device_args['name'] = name
+    device_args['parentid'] = 1
     return Device(**device_args)
 
 
@@ -30,8 +31,8 @@ def build_tags_rule_dict(update, value=None, remove=None, pattern='^a'):
     return rule
 
 
-def build_sensor_naming_rule_dict(update, value=None, remove=None, pattern='^la'):
-    rule = {'attribute': 'name', 'pattern': pattern, 'prop': 'tags', 'update': update}
+def build_sensor_naming_rule_dict(update, formatting, value=None, remove=None, pattern='^la'):
+    rule = {'attribute': 'name', 'pattern': pattern, 'prop': 'name', 'update': update, 'formatting': formatting}
     if value is not None:
         rule['value'] = value
     if remove is not None:
@@ -46,9 +47,10 @@ class TestRule(unittest.TestCase):
         # 'tc' is inherited from the parent (so it is not present in the new value),
         # 'td' is added by "value".
         rule = NameMatch(**build_tags_rule_dict(True, ['ta', 'td']))
-        parent_value = {'tc'}
-        new_value = rule.eval(['ta', 'tb', 'tc'], parent_value)
-        self.assertEqual({'ta', 'tb', 'td'}, set(new_value))
+        parent = build_common_device({'tc'}, 'parent')
+        entity = build_common_device({'ta', 'tb', 'tc'})
+        new_value = rule.eval(entity, parent, {})
+        self.assertEqual({'ta', 'tb', 'td'}, set(new_value.split(' ')))
 
     def test_get_new_value_removes_original_entity_values_only(self):
         # 'ta' and 'tc' are inherited from the parent (so they are not present in the new value),
@@ -58,20 +60,26 @@ class TestRule(unittest.TestCase):
         # 'tf' is not removed by "remove" (because it is not in the original) and added by "value",
         # 'tg' is added by "value".
         rule = NameMatch(**build_tags_rule_dict(True, ['ta', 'tb', 'tf', 'tg'], ['tb', 'tc', 'td', 'tf']))
-        parent_value = {'ta', 'tc'}
-        new_value = rule.eval(['ta', 'tb', 'tc', 'td', 'te'], parent_value)
-        self.assertEqual({'tb', 'te', 'tf', 'tg'}, set(new_value))
+        parent = build_common_device({'ta', 'tc'}, 'parent')
+        entity = build_common_device({'ta', 'tb', 'tc', 'td', 'te'})
+        new_value = rule.eval(entity, parent, {})
+        self.assertEqual({'tb', 'te', 'tf', 'tg'}, set(new_value.split(' ')))
 
     def test_not_update(self):
         # 'ta' is inherited from the parent (so it is not present in the new value);
-        # 'tb' is not removed by "remove" because it is not overwritten by "value";
-        # 'tc' is not removed by "remove", but it is not overwritten by "value" either;
+        # 'tb' is not overwritten by "value";
+        # 'tc' is not overwritten by "value" either;
         # 'td' is not overwritten by "value";
         # 'te' is in overwritten by "value".
-        rule = NameMatch(**build_tags_rule_dict(False, ['ta', 'tb', 'te'], ['ta', 'tb', 'tc']))
-        parent_value = {'ta'}
-        new_value = rule.eval(['ta', 'tb', 'tc', 'td'], parent_value)
-        self.assertEqual({'tb', 'te'}, set(new_value))
+        rule = NameMatch(**build_tags_rule_dict(False, ['ta', 'tb', 'te']))
+        parent = build_common_device({'ta'}, 'parent')
+        entity = build_common_device({'ta', 'tb', 'tc', 'td'})
+        new_value = rule.eval(entity, parent, {})
+        self.assertEqual({'tb', 'te'}, set(new_value.split(' ')))
+
+    def test_not_update_and_remove_fails(self):
+        with self.assertRaises(ValueError):
+            NameMatch(**build_tags_rule_dict(False, ['tx'], ['ty']))
 
     # def test_keep(self):
     #     # 'ta' and 'tc' are inherited from the parent (so they are not present in the new value),
@@ -145,7 +153,7 @@ class TestRuleChain(unittest.TestCase):
         changes = rule_chain.apply(device, parent)
         self._assert_device_tags_and_changes({'te', 'tg'}, True, device, parent, changes)
 
-    @unittest.skip('Not implemented yet')
+    # @unittest.skip('Not implemented yet')
     def test_renaming_sensors(self):
         # 'ta' is inherited from the parent (so it is not present in the new value);
         # 'tb', 'tc' and 'td are removed by no-update "value";
@@ -154,7 +162,7 @@ class TestRuleChain(unittest.TestCase):
         # 'tg' is added by "value".
         parent = build_common_device({'some-tag'})
         sensor = build_common_sensor(parent)
-        rule_dict = build_sensor_naming_rule_dict(False, [{'pattern': '{parent.name} - {self.name}'}])
+        rule_dict = build_sensor_naming_rule_dict(False, '{parent.name} - {entity.name}', None, None, '^')
         rule_chain = RuleChain(rule_dict)
         changes = rule_chain.apply(sensor, parent)
         self._assert_sensor_naming_changes('a device - a sensor', 'a device', True, sensor, parent, changes)
@@ -171,8 +179,8 @@ class TestRuleChain(unittest.TestCase):
             self.assertEqual(set(), changes.keys())
 
     def _assert_sensor_naming_changes(self, expected_new_name, expected_parent_name, changed, sensor, parent, changes):
-        self.assertEqual(list, type(sensor.name))
-        self.assertEqual(list, type(parent.name))
+        self.assertEqual(str, type(sensor.name))
+        self.assertEqual(str, type(parent.name))
         self.assertEqual(expected_new_name, sensor.name)
         self.assertEqual(expected_parent_name, parent.name)
         if changed:

@@ -5,6 +5,7 @@ PrtgObject Models
 """
 
 from copy import deepcopy
+import logging
 import re
 
 from prtg.exceptions import BadTarget
@@ -79,6 +80,9 @@ class PrtgObject(object):
         #     value = int(value)
         self.__setattr__(key, value)
 
+    def __repr__(self):
+        return self.__class__.__name__ + str(vars(self))
+
 
 # TODO: Generify these.
 class Sensor(PrtgObject):
@@ -145,8 +149,44 @@ class Status(PrtgObject):
                 pass
 
 
-def subtract_set_from_list(a_list, a_set_of_removals):
+def _subtract_set_from_list(a_list, a_set_of_removals):
     return list(filter(lambda element: element not in a_set_of_removals, a_list))
+
+
+def _get_entity_value(entity, prop, parent_value):
+    """
+    Gets the entity value, taking care of the tags not containing parent ones.
+    :param entity: PRTG instance.
+    :param prop: Property name.
+    :param parent_value: Parent's property value.
+    :return: PRTG instance's property own value.
+    """
+    entity_value = entity.__getattribute__(prop)
+    # if prop not in LIST_TYPE_PROPS:
+    #     entity_value = [entity_value]
+    return _subtract_set_from_list(entity_value, parent_value)
+
+
+def _get_inherited_values(parent_object, prop, inherited_values_map):
+    """
+    :param parent_object: PRTG instance of the parent of the object being ruled.
+    :param prop: Property name.
+    :param inherited_values_map: Map of cached properties.
+    :return: Inherited values map (i.e., the parent_object's prop value).
+    """
+    if parent_object is not None and prop in INHERITED_PROPS:
+        if prop in inherited_values_map:
+            inherited_values = inherited_values_map[prop]
+        else:
+            if prop in LIST_TYPE_PROPS:
+                inherited_values = set(parent_object.__getattribute__(prop))
+            else:
+                inherited_values = {parent_object.__getattribute__(prop)}
+            inherited_values_map[prop] = inherited_values
+    else:
+        inherited_values = set()
+        inherited_values_map[prop] = inherited_values
+    return inherited_values
 
 
 class Rule(object):
@@ -154,50 +194,69 @@ class Rule(object):
     Application Rule.
     """
 
-    def __init__(self, attribute, pattern, prop, update, value=None, remove=None):
+    def __init__(self, attribute, pattern, prop, update=False, value=None, remove=None, formatting=None):
         """
         """
+        if update and formatting:
+            raise ValueError('Cannot set "formatting" when "update" is True')
+        if formatting and (value or remove):
+            raise ValueError('Cannot set "value" nor "remove" if "formatting" is set')
+        if not update and remove:
+            raise ValueError('Cannot set "remove" when "update" is False')
         self.attribute = attribute
         self.pattern = pattern
         self.prop = prop
         self.update = update
         self.value = value if value else []
         self.remove = set(remove) if remove else set()
+        self.formatting = formatting
 
-    def eval(self, entity_value, parent_value):
-        if self.update:
+    def eval(self, prtg_object, parent_object, inherited_values_map):
+        """
+        Evaluate rule on the prtg_object (it updates the object).
+        :param prtg_object: PRTG instance.
+        :param parent_object: The PRTG instance pointed by prtg_object.parentid.
+        :param inherited_values_map: Parent values cached.
+        :return: New value for the property, as string.
+        """
+        parent_value = _get_inherited_values(parent_object, self.prop, inherited_values_map)
+        if self.formatting:
+            new_value = self._format_value(prtg_object, parent_object)
+        elif self.update:
+            entity_value = _get_entity_value(prtg_object, self.prop, parent_value)
             new_value = self._remove_values(entity_value, self.remove)
             new_value = self._update_list_value(new_value, parent_value, self.value)
         else:
-            new_value = self._subtract_set_from_list(self.value, parent_value)
+            new_value = _subtract_set_from_list(self.value, parent_value)
+        if isinstance(new_value, list):
+            new_value = ' '.join(new_value)
+        prtg_object.update_field(self.prop, new_value, parent_value)
         return new_value
 
-    def _remove_values(self, entity_value, remove):
-        return self._subtract_set_from_list(entity_value, remove)
+    def _format_value(self, prtg_object, parent_object):
+        return self.formatting.format(entity=prtg_object, parent=parent_object)
 
-    def _update_list_value(self, entity_value, parent_value, value):
-        current = self._subtract_set_from_list(entity_value, parent_value)
+    @staticmethod
+    def _remove_values(entity_value, remove):
+        return _subtract_set_from_list(entity_value, remove)
+
+    @staticmethod
+    def _update_list_value(entity_value, parent_value, value):
+        current = _subtract_set_from_list(entity_value, parent_value)
         if value is None:
             value = []
-        update = self._subtract_set_from_list(value, parent_value.union(current))
+        update = _subtract_set_from_list(value, parent_value.union(current))
         new_value = current + update
         return new_value
 
-    @staticmethod
-    def _subtract_set_from_list(a_list, a_set_of_removals):
-        return list(filter(lambda element: element not in a_set_of_removals, a_list))
+    def __repr__(self):
+        return 'Rule' + str(vars(self))
 
 
 class NameMatch(Rule):
     """
     Name match rule.
     """
-
-    # def eval(self, prtg_object, parent_value):
-    #     if self.matches(prtg_object):
-    #         return self.force_eval(prtg_object, parent_value)
-    #     else:
-    #         return self._get_current_entity_value(prtg_object, self.prop, parent_value)
 
     def matches(self, prtg_object):
         return re.match(self.pattern, str(prtg_object.__getattribute__(self.attribute)))
@@ -229,45 +288,40 @@ class RuleChain(object):
         original_object = deepcopy(prtg_object)
         changes = {}
         inherited_values_map = {}
-        for rule in self.rules:
-            if rule.matches(prtg_object):
-                inherited_values = self._get_inherited_values(parent_object, rule.prop, inherited_values_map)
-                entity_value = self._get_entity_value(prtg_object, rule.prop, inherited_values)
-                new_value = ' '.join(rule.eval(entity_value, inherited_values))
-                prtg_object.update_field(rule.prop, new_value, inherited_values)
-                changes[rule.prop] = new_value
-        return self._get_effective_changes(original_object, inherited_values_map, changes)
+        current_rule = None  # For exception logging
+        try:
+            for rule in self.rules:
+                current_rule = rule
+                if rule.matches(prtg_object):
+                    new_value = rule.eval(prtg_object, parent_object, inherited_values_map)
+                    changes[rule.prop] = new_value
+            return self._get_effective_changes(original_object, inherited_values_map, changes)
+        except AttributeError as exception:
+            # logging.error('Unable to apply rule {} to object {}'.format(current_rule, prtg_object), exception)
+            logging.error('Unable to apply rule {} to object {}'.format(current_rule, prtg_object))
+            return None
 
-    def _get_effective_changes(self, original_object, inherited_values_map, changes):
+
+    @staticmethod
+    def _get_effective_changes(original_object, inherited_values_map, changes):
+        """
+        Crosses changes with the original values and returns only the changes that need to be applied (i.e., new values
+        that match the original ones are skipped).
+        :param original_object: PRTG entity.
+        :param inherited_values_map: Map of parent values per property.
+        :param changes: Map of all (i.e., unfiltered) changes.
+        :return: Map of effective changes (i.e., changes that need to be applied), with props as keys.
+        """
         effective_changes = {}
-        for prop, new_value in changes.items():
-            entity_value = self._get_entity_value(original_object, prop, inherited_values_map[prop])
-            if not (entity_value == [] and new_value == '') and entity_value != new_value.split(' '):
-                effective_changes[prop] = new_value
-        return effective_changes
-
-    @staticmethod
-    def _get_entity_value(entity, prop, parent_value):
-        entity_value = entity.__getattribute__(prop)
-        if prop not in LIST_TYPE_PROPS:
-            entity_value = [entity_value]
-        return subtract_set_from_list(entity_value, parent_value)
-
-    @staticmethod
-    def _get_inherited_values(parent_object, prop, inherited_values_map):
-        if parent_object is not None and prop in INHERITED_PROPS:
-            if prop in inherited_values_map:
-                inherited_values = inherited_values_map[prop]
+        for prop, change_value in changes.items():
+            entity_value = _get_entity_value(original_object, prop, inherited_values_map[prop])
+            if prop in LIST_TYPE_PROPS:
+                new_value = change_value.split(' ') if change_value != '' else []
             else:
-                if prop in LIST_TYPE_PROPS:
-                    inherited_values = set(parent_object.__getattribute__(prop))
-                else:
-                    inherited_values = {parent_object.__getattribute__(prop)}
-                inherited_values_map[prop] = inherited_values
-        else:
-            inherited_values = set()
-            inherited_values_map[prop] = inherited_values
-        return inherited_values
+                new_value = change_value
+            if set(entity_value) != set(new_value):
+                effective_changes[prop] = change_value
+        return effective_changes
 
 
 class Query(object):
