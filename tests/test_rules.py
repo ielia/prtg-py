@@ -1,6 +1,7 @@
 import unittest
 
-from prtg.models import Device, NameMatch, RuleChain, Sensor
+from prtg.models import Device, Sensor
+from prtg.rules import NameMatch, RuleChain
 
 
 DEVICE_COMMON_ARGS = {'objid': 123, 'name': 'aba'}
