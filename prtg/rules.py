@@ -20,8 +20,8 @@ def _get_entity_value(entity, prop, parent_value):
     :return: PRTG instance's property own value.
     """
     entity_value = entity.__getattribute__(prop)
-    # if prop not in LIST_TYPE_PROPS:
-    #     entity_value = [entity_value]
+    if isinstance(entity_value, str):
+        entity_value = [entity_value]
     return _subtract_set_from_list(entity_value, parent_value)
 
 
@@ -52,15 +52,21 @@ class Rule(object):
     Application Rule.
     """
 
-    def __init__(self, attribute, pattern, prop, update=False, value=None, remove=None, formatting=None):
+    def __init__(self, attribute, pattern, prop, update=False, value=None, remove=None, formatting=None,
+                 rollback_formatting=None):
         """
         """
         if update and formatting:
             raise ValueError('Cannot set "formatting" when "update" is True')
         if formatting and (value or remove):
             raise ValueError('Cannot set "value" nor "remove" if "formatting" is set')
+        if rollback_formatting and remove:
+            raise ValueError('Cannot set "remove" if "rollback_formatting" is set')
         if not update and remove:
             raise ValueError('Cannot set "remove" when "update" is False')
+        if rollback_formatting is not None and '{entity.' + prop + '}' not in rollback_formatting:
+            raise ValueError("Cannot have \"rollback_formatting\" without references to the entity's property in pure "
+                             "form")
         self.attribute = attribute
         self.pattern = pattern
         self.prop = prop
@@ -68,6 +74,7 @@ class Rule(object):
         self.value = value if value else []
         self.remove = set(remove) if remove else set()
         self.formatting = formatting
+        self.rollback_formatting = rollback_formatting
 
     def eval(self, prtg_object, parent_object, inherited_values_map):
         """
@@ -78,25 +85,55 @@ class Rule(object):
         :return: New value for the property, as string.
         """
         parent_value = _get_inherited_values(parent_object, self.prop, inherited_values_map)
+        if self.rollback_formatting:
+            new_value = self._rollback_formatted_value(prtg_object, parent_object, inherited_values_map)
+            self._update_field(prtg_object, self.prop, new_value, parent_value)
         if self.formatting:
-            new_value = self._format_value(prtg_object, parent_object)
+            new_value = self._format_value(self.formatting, prtg_object, parent_object)
         elif self.update:
             entity_value = _get_entity_value(prtg_object, self.prop, parent_value)
             new_value = self._remove_values(entity_value, self.remove)
             new_value = self._update_list_value(new_value, parent_value, self.value)
-        else:
+        elif not self.rollback_formatting:
             new_value = _subtract_set_from_list(self.value, parent_value)
-        if isinstance(new_value, list):
-            new_value = ' '.join(new_value)
-        prtg_object.update_field(self.prop, new_value, parent_value)
-        return new_value
+        return self._update_field(prtg_object, self.prop, new_value, parent_value)
 
-    def _format_value(self, prtg_object, parent_object):
-        return self.formatting.format(entity=prtg_object, parent=parent_object)
+    def _rollback_formatted_value(self, prtg_object, parent_object, inherited_values_map):
+        regexp = ('^' +
+                  '(.*)'.join([re.escape(self._format_value(x, prtg_object, parent_object))
+                               for x in self.rollback_formatting.split('{entity.' + self.prop + '}')]) +
+                  '$')
+        value = ' '.join(_get_entity_value(prtg_object, self.prop,
+                                           _get_inherited_values(parent_object, self.prop, inherited_values_map)))
+        match = re.compile(regexp).match(value)
+        if not match:
+            raise AttributeError()
+        groups = match.groups()  # This has at least one member
+        consistent = True
+        for group in groups:
+            if groups[0] != group:
+                logging.error('There are inconsistencies in the original value of the property in entity {}.'.format(
+                    prtg_object.name))
+                consistent = False
+                break
+        if not consistent:
+            raise AttributeError()
+        return groups[0]
+
+    @staticmethod
+    def _format_value(formatting, prtg_object, parent_object):
+        return formatting.format(entity=prtg_object, parent=parent_object)
 
     @staticmethod
     def _remove_values(entity_value, remove):
         return _subtract_set_from_list(entity_value, remove)
+
+    @staticmethod
+    def _update_field(prtg_object, prop, new_value, parent_value):
+        if isinstance(new_value, list):
+            new_value = ' '.join(new_value)
+        prtg_object.update_field(prop, new_value, parent_value)
+        return new_value
 
     @staticmethod
     def _update_list_value(entity_value, parent_value, value):

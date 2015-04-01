@@ -32,8 +32,13 @@ def build_tags_rule_dict(update, value=None, remove=None, pattern='^a'):
     return rule
 
 
-def build_sensor_naming_rule_dict(update, formatting, value=None, remove=None, pattern='^la'):
-    rule = {'attribute': 'name', 'pattern': pattern, 'prop': 'name', 'update': update, 'formatting': formatting}
+def build_sensor_naming_rule_dict(update, formatting=None, rollback_formatting=None, value=None, remove=None,
+                                  pattern='^la'):
+    rule = {'attribute': 'name', 'pattern': pattern, 'prop': 'name', 'update': update}
+    if formatting is not None:
+        rule['formatting'] = formatting
+    if rollback_formatting is not None:
+        rule['rollback_formatting'] = rollback_formatting
     if value is not None:
         rule['value'] = value
     if remove is not None:
@@ -154,7 +159,6 @@ class TestRuleChain(unittest.TestCase):
         changes = rule_chain.apply(device, parent)
         self._assert_device_tags_and_changes({'te', 'tg'}, True, device, parent, changes)
 
-    # @unittest.skip('Not implemented yet')
     def test_renaming_sensors(self):
         # 'ta' is inherited from the parent (so it is not present in the new value);
         # 'tb', 'tc' and 'td are removed by no-update "value";
@@ -163,10 +167,37 @@ class TestRuleChain(unittest.TestCase):
         # 'tg' is added by "value".
         parent = build_common_device({'some-tag'})
         sensor = build_common_sensor(parent)
-        rule_dict = build_sensor_naming_rule_dict(False, '{parent.name} - {entity.name}', None, None, '^')
+        rule_dict = build_sensor_naming_rule_dict(False, '{parent.name} - {entity.name}', pattern='^')
         rule_chain = RuleChain(rule_dict)
         changes = rule_chain.apply(sensor, parent)
         self._assert_sensor_naming_changes('a device - a sensor', 'a device', True, sensor, parent, changes)
+
+    def test_rollback_formatting(self):
+        # 'ta' is inherited from the parent (so it is not present in the new value);
+        # 'tb', 'tc' and 'td are removed by no-update "value";
+        # 'te' is added by no-update "value";
+        # 'tf' is added by no-update "value" and then removed by "remove";
+        # 'tg' is added by "value".
+        parent = build_common_device(set(), 'a (device)')
+        sensor = build_common_sensor(parent, '[a (device)] some sensor "name"$ (with) stuff in')
+        rule_dict = build_sensor_naming_rule_dict(False, None, '[{parent.name}] {entity.name}', pattern='^')
+        rule_chain = RuleChain(rule_dict)
+        changes = rule_chain.apply(sensor, parent)
+        self._assert_sensor_naming_changes('some sensor "name"$ (with) stuff in', 'a (device)', True, sensor, parent,
+                                           changes)
+
+    def test_rollback_formatting_fails(self):
+        # 'ta' is inherited from the parent (so it is not present in the new value);
+        # 'tb', 'tc' and 'td are removed by no-update "value";
+        # 'te' is added by no-update "value";
+        # 'tf' is added by no-update "value" and then removed by "remove";
+        # 'tg' is added by "value".
+        parent = build_common_device(set(), 'a (device)')
+        sensor = build_common_sensor(parent, 'x')
+        rule_dict = build_sensor_naming_rule_dict(False, None, '[{parent.name}] {entity.name}', pattern='^')
+        rule_chain = RuleChain(rule_dict)
+        changes = rule_chain.apply(sensor, parent)
+        self._assert_sensor_naming_changes('x', 'a (device)', None, sensor, parent, changes)
 
     def _assert_device_tags_and_changes(self, expected_new_value_dict, changed, device, parent, changes):
         self.assertEqual(list, type(device.tags))
@@ -184,7 +215,9 @@ class TestRuleChain(unittest.TestCase):
         self.assertEqual(str, type(parent.name))
         self.assertEqual(expected_new_name, sensor.name)
         self.assertEqual(expected_parent_name, parent.name)
-        if changed:
+        if changed is None:
+            self.assertIsNone(changes)
+        elif changed:
             self.assertEqual({'name'}, changes.keys())
             changed_name = changes['name']
             self.assertEqual(str, type(changed_name))
