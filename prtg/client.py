@@ -4,8 +4,10 @@ Python library for Paessler's PRTG (http://www.paessler.com/)
 """
 
 import logging
-import xml.etree.ElementTree as Et
+from time import sleep
+from urllib.error import HTTPError
 from urllib import request
+import xml.etree.ElementTree as Et
 
 from prtg.cache import Cache
 from prtg.models import Sensor, Device, Group, Status, PrtgObject
@@ -35,6 +37,12 @@ class Connection(object):
     """
     PRTG Connection Object. It holds a response list. It is used by Client only once per query.
     """
+
+    EXPONENTIAL_BACKOFF_MULT = 2
+    EXPONENTIAL_BACKOFF_SECS = 2
+    ON_QUERY_HTTP_ERROR_ABORT = True
+    ON_QUERY_HTTP_ERROR_TREAT_AS_ENDED = True
+    RETRIES_PER_QUERY = 3
 
     def __init__(self):
         self.response = list()
@@ -70,25 +78,26 @@ class Connection(object):
 
         return out
 
-    def _process_response(self, response, expect_return=True):  # TODO: check why we have an "expected_return" argument.
+    def _process_response(self, response, expect_return=True):
         """
         Process the response from the server.
         :param response: HTTP response (urllib).
         :param expect_return: Basically, it is a flag that tells this function to process the response or not.
-        :return: If expected_return is True, then it returns a list of objects, one per item in the response, and an
-                 indicator to whether the list in the response was finished (1) or not (?).
-                 If expected_return is False, it doesn't do anything.
+        :return: Returns a list of objects, one per item in the response, and an indicator to whether the list in the
+                 response was finished (1) or not (?).
         """
+        try:
+            resp = Et.fromstring(response.read().decode('utf-8'))
+        except Et.ParseError as e:
+            raise UnknownResponse(e)
         if expect_return:
-            try:
-                resp = Et.fromstring(response.read().decode('utf-8'))
-            except Et.ParseError as e:
-                raise UnknownResponse(e)
             try:
                 ended = resp.attrib['listend']  # Catch KeyError and return finished
             except KeyError:
                 ended = 1
             return self._encode_response(resp, resp.tag), ended
+        else:
+            return list(), 1
 
     def _build_request(self, query):
         """
@@ -108,7 +117,31 @@ class Connection(object):
         while not int(ended):
             req = self._build_request(query)
             logging.info('Making request: {}'.format(query))
-            resp, ended = self._process_response(request.urlopen(req))
+
+            resp = list()
+            done = False
+            trial = 0
+            back_off = self.EXPONENTIAL_BACKOFF_SECS
+            while not done and trial <= self.RETRIES_PER_QUERY:
+                trial += 1
+                try:
+                    resp, ended = self._process_response(request.urlopen(req), query.expect_response)
+                    done = True
+                except HTTPError:
+                    if trial <= self.RETRIES_PER_QUERY:
+                        logging.warning('Query failed (trial#{}, will retry): {}'.format(trial, query))
+                        logging.warning('Backing off {} seconds'.format(back_off))
+                        sleep(back_off)
+                        back_off *= self.EXPONENTIAL_BACKOFF_MULT
+                    else:
+                        logging.error('QUERY FAILED {} TIMES: {}'.format(trial, query))
+                        if self.ON_QUERY_HTTP_ERROR_ABORT:
+                            logging.error('ABORTING QUERY')
+                            raise
+                        elif self.ON_QUERY_HTTP_ERROR_TREAT_AS_ENDED:
+                            logging.error('QUERY ENDED FORCIBLY')
+                            ended = 1
+
             self.response += resp
             if not int(ended):
                 query.increment()

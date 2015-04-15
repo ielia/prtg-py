@@ -227,8 +227,10 @@ class Query(object):
         _url += '&start={}&count={}'.format(self.counter, self.maximum)
 
         if self.extra:
-            _url += '&' + '&'.join(map(lambda x: '{}={}'.format(x[0], x[1]),
+            import urllib.parse
+            _url += '&' + '&'.join(map(lambda x: '{}={}'.format(x[0], urllib.parse.quote(x[1])),
                                        filter(lambda z: z[1], self.extra.items())))
+
         return _url
 
     def __str__(self):
