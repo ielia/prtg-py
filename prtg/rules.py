@@ -56,8 +56,6 @@ class Rule(object):
                  rollback_formatting=None):
         """
         """
-        if update and formatting:
-            raise ValueError('Cannot set "formatting" when "update" is True')
         if formatting and (value or remove):
             raise ValueError('Cannot set "value" nor "remove" if "formatting" is set')
         if rollback_formatting and remove:
@@ -86,10 +84,10 @@ class Rule(object):
         """
         parent_value = _get_inherited_values(parent_object, self.prop, inherited_values_map)
         if self.rollback_formatting:
-            new_value = self._rollback_formatted_value(prtg_object, parent_object, inherited_values_map)
+            new_value = self._rollback_applied_formatting(prtg_object, parent_object, inherited_values_map)
             self._update_field(prtg_object, self.prop, new_value, parent_value)
         if self.formatting:
-            new_value = self._format_value(self.formatting, prtg_object, parent_object)
+            new_value = self._apply_formatting(prtg_object, parent_object, inherited_values_map)
         elif self.update:
             entity_value = _get_entity_value(prtg_object, self.prop, parent_value)
             new_value = self._remove_values(entity_value, self.remove)
@@ -98,13 +96,47 @@ class Rule(object):
             new_value = _subtract_set_from_list(self.value, parent_value)
         return self._update_field(prtg_object, self.prop, new_value, parent_value)
 
-    def _rollback_formatted_value(self, prtg_object, parent_object, inherited_values_map):
+    def _apply_formatting(self, prtg_object, parent_object, inherited_values_map):
+        value = ' '.join(_get_entity_value(prtg_object, self.prop,
+                                           _get_inherited_values(parent_object, self.prop, inherited_values_map)))
+        regexp = ('^' +
+                  '(.*)'.join([re.escape(self._format_value(x, prtg_object, parent_object))
+                               for x in self.formatting.split('{entity.' + self.prop + '}')]) +
+                  '$')
+        match = re.compile(regexp).match(value)
+        if not match:
+            new_object = prtg_object
+            if self.update:
+                regexp = ('^' +
+
+                          '(.*)'.join(['(?:.*)'.join([re.escape(self._format_value(x, prtg_object, parent_object))
+                                                      for x in re.split('\{parent\.[^\}]+\}', part)])
+                                       for part in self.formatting.split('{entity.' + self.prop + '}')]) +
+                          '$')
+                match = re.compile(regexp).match(value)
+                if match:
+                    groups = match.groups()  # This has at least one member
+                    consistent = True
+                    for group in groups:
+                        if groups[0] != group:
+                            logging.error('There are inconsistencies in the original value of the property in '
+                                          'entity {}.'.format(prtg_object.name))
+                            consistent = False
+                            break
+                    if not consistent:
+                        raise AttributeError()
+                    new_object = deepcopy(prtg_object)
+                    setattr(new_object, self.prop, match.groups()[0])
+            value = self._format_value(self.formatting, new_object, parent_object)
+        return value
+
+    def _rollback_applied_formatting(self, prtg_object, parent_object, inherited_values_map):
+        value = ' '.join(_get_entity_value(prtg_object, self.prop,
+                                           _get_inherited_values(parent_object, self.prop, inherited_values_map)))
         regexp = ('^' +
                   '(.*)'.join([re.escape(self._format_value(x, prtg_object, parent_object))
                                for x in self.rollback_formatting.split('{entity.' + self.prop + '}')]) +
                   '$')
-        value = ' '.join(_get_entity_value(prtg_object, self.prop,
-                                           _get_inherited_values(parent_object, self.prop, inherited_values_map)))
         match = re.compile(regexp).match(value)
         if not match:
             raise AttributeError()

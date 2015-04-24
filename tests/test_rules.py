@@ -160,11 +160,6 @@ class TestRuleChain(unittest.TestCase):
         self._assert_device_tags_and_changes({'te', 'tg'}, True, device, parent, changes)
 
     def test_renaming_sensors(self):
-        # 'ta' is inherited from the parent (so it is not present in the new value);
-        # 'tb', 'tc' and 'td are removed by no-update "value";
-        # 'te' is added by no-update "value";
-        # 'tf' is added by no-update "value" and then removed by "remove";
-        # 'tg' is added by "value".
         parent = build_common_device({'some-tag'})
         sensor = build_common_sensor(parent)
         rule_dict = build_sensor_naming_rule_dict(False, '{parent.name} - {entity.name}', pattern='^')
@@ -172,12 +167,41 @@ class TestRuleChain(unittest.TestCase):
         changes = rule_chain.apply(sensor, parent)
         self._assert_sensor_naming_changes('a device - a sensor', 'a device', True, sensor, parent, changes)
 
+    def test_renaming_a_sensor_already_renamed(self):
+        parent = build_common_device({'some-tag'})
+        sensor = build_common_sensor(parent, 'a sensor - a device')
+        rule_dict = build_sensor_naming_rule_dict(False, '{entity.name} - {parent.name}', pattern='^')
+        rule_chain = RuleChain(rule_dict)
+        changes = rule_chain.apply(sensor, parent)
+        self._assert_sensor_naming_changes('a sensor - a device', 'a device', True, sensor, parent, changes)
+
+    def test_renaming_normally_a_sensor_with_matching_name_structure(self):
+        parent = build_common_device({'some-tag'})
+        sensor = build_common_sensor(parent, 'a sensor - another device')
+        rule_dict = build_sensor_naming_rule_dict(False, '{entity.name} - {parent.name}', pattern='^')
+        rule_chain = RuleChain(rule_dict)
+        changes = rule_chain.apply(sensor, parent)
+        self._assert_sensor_naming_changes('a sensor - another device - a device', 'a device', True, sensor, parent,
+                                           changes)
+
+    def test_renaming_accordingly_a_sensor_with_matching_name_structure(self):
+        parent = build_common_device({'some-tag'})
+        sensor = build_common_sensor(parent, 'a sensor - another device')
+        rule_dict = build_sensor_naming_rule_dict(True, '{entity.name} - {parent.name}', pattern='^')
+        rule_chain = RuleChain(rule_dict)
+        changes = rule_chain.apply(sensor, parent)
+        self._assert_sensor_naming_changes('a sensor - a device', 'a device', True, sensor, parent, changes)
+
+    def test_renaming_accordingly_a_sensor_with_matching_name_structure_fails(self):
+        parent = build_common_device({'some-tag'})
+        sensor = build_common_sensor(parent, 'a sensor - one sensor - another device')
+        rule_dict = build_sensor_naming_rule_dict(True, '{entity.name} - {entity.name} - {parent.name}', pattern='^')
+        rule_chain = RuleChain(rule_dict)
+        changes = rule_chain.apply(sensor, parent)
+        self._assert_sensor_naming_changes('a sensor - one sensor - another device', 'a device', None, sensor, parent,
+                                           changes)
+
     def test_rollback_formatting(self):
-        # 'ta' is inherited from the parent (so it is not present in the new value);
-        # 'tb', 'tc' and 'td are removed by no-update "value";
-        # 'te' is added by no-update "value";
-        # 'tf' is added by no-update "value" and then removed by "remove";
-        # 'tg' is added by "value".
         parent = build_common_device(set(), 'a (device)')
         sensor = build_common_sensor(parent, '[a (device)] some sensor "name"$ (with) stuff in')
         rule_dict = build_sensor_naming_rule_dict(False, None, '[{parent.name}] {entity.name}', pattern='^')
@@ -187,11 +211,6 @@ class TestRuleChain(unittest.TestCase):
                                            changes)
 
     def test_rollback_formatting_fails(self):
-        # 'ta' is inherited from the parent (so it is not present in the new value);
-        # 'tb', 'tc' and 'td are removed by no-update "value";
-        # 'te' is added by no-update "value";
-        # 'tf' is added by no-update "value" and then removed by "remove";
-        # 'tg' is added by "value".
         parent = build_common_device(set(), 'a (device)')
         sensor = build_common_sensor(parent, 'x')
         rule_dict = build_sensor_naming_rule_dict(False, None, '[{parent.name}] {entity.name}', pattern='^')
