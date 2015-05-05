@@ -5,13 +5,23 @@ Python library for Paessler's PRTG (http://www.paessler.com/)
 
 import logging
 from time import sleep
-from urllib.error import HTTPError
 from urllib import request
+from urllib.error import HTTPError
 import xml.etree.ElementTree as Et
 
 from prtg.cache import Cache
 from prtg.models import Sensor, Device, Group, Status, PrtgObject
 from prtg.exceptions import UnknownResponse
+
+
+__OPENER = None
+
+
+def install_opener():
+    global __OPENER
+    if __OPENER is None:
+        __OPENER = request.build_opener(request.HTTPSHandler)
+        request.install_opener(__OPENER)
 
 
 class PrtgEncoder(object):
@@ -108,6 +118,10 @@ class Connection(object):
         logging.debug('REQUEST: target={} method={}'.format(req, method))
         return request.Request(url=req, method=method)
 
+    def _urlopen(self, req):
+        install_opener()
+        return request.urlopen(req)
+
     def get_request(self, query):
         """
         Make HTTP requests (urllib) to retrieve the full list of items.
@@ -125,7 +139,7 @@ class Connection(object):
             while not done and trial <= self.RETRIES_PER_QUERY:
                 trial += 1
                 try:
-                    resp, ended = self._process_response(request.urlopen(req), query.expect_response)
+                    resp, ended = self._process_response(self._urlopen(req), query.expect_response)
                     done = True
                 except HTTPError:
                     if trial <= self.RETRIES_PER_QUERY:
