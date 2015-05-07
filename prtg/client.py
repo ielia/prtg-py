@@ -20,7 +20,11 @@ __OPENER = None
 def install_opener():
     global __OPENER
     if __OPENER is None:
-        __OPENER = request.build_opener(request.HTTPSHandler)
+        import ssl
+        context = ssl._create_stdlib_context(cert_reqs=ssl.CERT_NONE, check_hostname=False, certfile=None, keyfile=None,
+                                             cafile=None, capath=None, cadata=None)
+        https_handler = request.HTTPSHandler(context=context, check_hostname=None)
+        __OPENER = request.build_opener(https_handler)
         request.install_opener(__OPENER)
 
 
