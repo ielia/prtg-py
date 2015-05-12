@@ -173,7 +173,7 @@ class TestRuleChain(unittest.TestCase):
         rule_dict = build_sensor_naming_rule_dict(False, '{entity.name} - {parent.name}', pattern='^')
         rule_chain = RuleChain(rule_dict)
         changes = rule_chain.apply(sensor, parent)
-        self._assert_sensor_naming_changes('a sensor - a device', 'a device', True, sensor, parent, changes)
+        self._assert_sensor_naming_changes('a sensor - a device', 'a device', False, sensor, parent, changes)
 
     def test_renaming_normally_a_sensor_with_matching_name_structure(self):
         parent = build_common_device({'some-tag'})

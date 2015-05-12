@@ -243,8 +243,7 @@ class RuleChain(object):
             if prop in LIST_TYPE_PROPS:
                 new_value = change_value.split(' ') if change_value != '' else []
             else:
-                new_value = change_value
+                new_value = [change_value]
             if set(entity_value) != set(new_value):
                 effective_changes[prop] = change_value
         return effective_changes
-
