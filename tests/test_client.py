@@ -5,15 +5,20 @@ Unittests for PRTG Query Builder
 
 import unittest
 from prtg.models import Query
-from prtg.client import Client, Sensor, Device, Group, Status, PrtgObject
+from prtg.client import Client, Sensor, Device, Group, PrtgObject
 
 USERNAME = 'prtgadmin'
 PASSWORD = 'prtgadmin'
 # ENDPOINT = 'http://192.168.59.103'
 ENDPOINT = 'http://172.20.18.112:8080'
 
+GROUPS = 'groups'
+DEVICES = 'devices'
+SENSORS = 'sensors'
+
 
 class TestClient(unittest.TestCase):
+    # This is not actually a Unit Test, but an Integration Test. TODO: Turn this into a Unit Test.
 
     def test_get_object_property(self):
         client = Client(endpoint=ENDPOINT, username=USERNAME, password=PASSWORD)
@@ -29,31 +34,24 @@ class TestClient(unittest.TestCase):
 
     def test_groups(self):
         client = Client(endpoint=ENDPOINT, username=USERNAME, password=PASSWORD)
-        query = Query(client=client, target='table', content='groups')
-        r = client.query(query)
-        for group in r:
+        query = Query(client=client, target='table', content=GROUPS)
+        client.query(query)
+        for group in client.cache.get_content(GROUPS):
             self.assertIsInstance(group, Group)
 
     def test_devices(self):
         client = Client(endpoint=ENDPOINT, username=USERNAME, password=PASSWORD)
-        query = Query(client=client, target='table', content='devices')
-        r = client.query(query)
-        for device in r:
+        query = Query(client=client, target='table', content=DEVICES)
+        client.query(query)
+        for device in client.cache.get_content(DEVICES):
             self.assertIsInstance(device, Device)
 
     def test_sensors(self):
         client = Client(endpoint=ENDPOINT, username=USERNAME, password=PASSWORD)
-        query = Query(client=client, target='table', content='sensors')
-        r = client.query(query)
-        for sensor in r:
+        query = Query(client=client, target='table', content=SENSORS)
+        client.query(query)
+        for sensor in client.cache.get_content(SENSORS):
             self.assertIsInstance(sensor, Sensor)
-
-    def test_status(self):
-        client = Client(endpoint=ENDPOINT, username=USERNAME, password=PASSWORD)
-        query = Query(client=client, target='getstatus')
-        r = client.query(query)
-        for status in r:
-            self.assertIsInstance(status, Status)
 
 
 if __name__ == '__main__':

@@ -126,10 +126,11 @@ class Connection(object):
         install_opener()
         return request.urlopen(req)
 
-    def get_request(self, query):
+    def get_request(self, query, cache):
         """
         Make HTTP requests (urllib) to retrieve the full list of items.
         :param query: prtg.models.Query instance.
+        :param cache: prtg.Cache instance.
         """
         ended = 0
         while not int(ended):
@@ -160,7 +161,20 @@ class Connection(object):
                             logging.error('QUERY ENDED FORCIBLY')
                             ended = 1
 
-            self.response += resp
+            # TODO: Find a better way to do this 'pseudo-transparent' caching.
+            if query.target == 'table.xml?':
+                cache.write_content(resp, True)
+            else:
+                self.response += resp
+
+            # if query.target == 'setobjectproperty.htm?':
+            #     try:
+            #         cached_object = cache.get_object(query.extra['id'])
+            #         cached_object.update_field(query.extra['name'], query.extra['value'], query.parent_value)
+            #         cache.write_content(cached_object, True)
+            #     except KeyError:
+            #         pass
+
             if not int(ended):
                 query.increment()
 
@@ -185,20 +199,10 @@ class Client(object):
         """
         Creates a connection and sends a query, returning its response from the server.
         :param query: prtg.models.Query instance.
-        :returns: The full list of objects collected.
+        :return: If not 'table', returns the queried value.
         """
         conn = Connection()
-        conn.get_request(query)
-        # TODO: Find a better way to do this 'pseudo-transparent' caching.
-        if query.target == 'table.xml?':
-            self.cache.write_content(conn.response, True)
-        if query.target == 'setobjectproperty.htm?':
-            try:
-                cached_object = self.cache.get_object(query.extra['id'])
-                cached_object.update_field(self, query.extra['name'], query.extra['value'], query.extra['parent_value'])
-                self.cache.write_content(cached_object, True)
-            except KeyError:
-                pass
+        conn.get_request(query, self.cache)
         return conn.response
 
 
