@@ -53,6 +53,18 @@ class TestClient(unittest.TestCase):
         for sensor in client.cache.get_content(SENSORS):
             self.assertIsInstance(sensor, Sensor)
 
+    def test_key_failures(self):
+        client = Client(endpoint=ENDPOINT, username=USERNAME, password=PASSWORD)
+        query = Query(client=client, target='table', content=SENSORS)
+        client.query(query)
+        try:
+            client.cache.get_object('123456')
+        except KeyError:
+            print('Got KeyError. Continuing with the test.')
+            pass
+        for sensor in client.cache.get_content(SENSORS):
+            self.assertIsInstance(sensor, Sensor)
+
 
 if __name__ == '__main__':
     unittest.main()
