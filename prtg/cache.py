@@ -3,6 +3,7 @@
 Python library for Paessler's PRTG (http://www.paessler.com/)
 """
 
+import atexit
 import logging
 import os
 import shelve
@@ -22,7 +23,7 @@ class Cache(object):
     present, it creates them.
     """
 
-    __FILE_PREFIX = 'prtg'
+    __FILE_PREFIX = 'prtg.'
     __FILE_SUFFIX = '.cache'
     __DIR = None
 
@@ -35,7 +36,8 @@ class Cache(object):
         os.close(self.cache_fd)
         # TODO: Figure out how to do this gracefully and not leaving a potential (but insignificant) security hole.
         os.remove(self.cache_filename)
-        shelve.open(self.cache_filename).close()
+        self.cache = shelve.open(self.cache_filename)
+        atexit.register(self._stop)
 
     def write_content(self, content, force=False):
         """
@@ -43,21 +45,20 @@ class Cache(object):
         :param content: List of instances of prtg.models.PrtgObject to put in the cache.
         :param force: Forces the insertion of the object in the cache.
         """
-        with shelve.open(self.cache_filename) as cache:
-            logging.debug('Writing Cache')
-            for obj in content:
-                if not isinstance(obj, PrtgObject):
-                    raise UnknownObjectType
-                if not str(obj.objid) in cache:
-                    # TODO: Compare new objects with cached objects.
-                    logging.debug('Writing new object {} to cache'.format(str(obj.objid)))
-                    cache[str(obj.objid)] = obj
-                elif force:
-                    logging.debug('Updating object {} in cache'.format(str(obj.objid)))
-                    obj.changed = True
-                    cache[str(obj.objid)] = obj
-                else:
-                    logging.debug('Object {} already cached'.format(str(obj.objid)))
+        logging.debug('Writing Cache')
+        for obj in content:
+            if not isinstance(obj, PrtgObject):
+                raise UnknownObjectType
+            if not str(obj.objid) in self.cache:
+                # TODO: Compare new objects with cached objects.
+                logging.debug('Writing new object {} to cache'.format(str(obj.objid)))
+                self.cache[str(obj.objid)] = obj
+            elif force:
+                logging.debug('Updating object {} in cache'.format(str(obj.objid)))
+                obj.changed = True
+                self.cache[str(obj.objid)] = obj
+            else:
+                logging.debug('Object {} already cached'.format(str(obj.objid)))
 
     def get_object(self, objectid):
         """
@@ -75,13 +76,12 @@ class Cache(object):
         :param content_type: Content type to retrieve.
         :yield: Objects contained in the cache with the specified content type.
         """
-        with shelve.open(self.cache_filename) as cache:
-            for objid, value in cache.items():  # items() is a generator, thus this usage.
-                try:
-                    if content_type == CONTENT_TYPE_ALL or value.content_type == content_type:
-                        yield value
-                except AttributeError:
-                    logging.warning('Bad object returned from cache: {}'.format(value))
+        for objid, value in self.cache.items():  # items() is a generator, thus this usage.
+            try:
+                if content_type == CONTENT_TYPE_ALL or value.content_type == content_type:
+                    yield value
+            except AttributeError:
+                logging.warning('Bad object returned from cache: {}'.format(value))
 
     def get_changed_content(self, content_type):
         """
@@ -94,11 +94,16 @@ class Cache(object):
             if value.changed:
                 yield value
 
-    def __del__(self):
+    def _stop(self):
+        if self.cache is not None:
+            try:
+                self.cache.close()
+            except:
+                logging.error("Couldn't close cache file")
+                raise
         if self.cache_filename:
             try:
                 os.remove(self.cache_filename)
-                # os.close(self.cache_fd)
             except:
                 logging.error("Couldn't delete cache file '{}'".format(self.cache_filename))
                 raise
