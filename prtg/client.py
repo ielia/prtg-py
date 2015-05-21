@@ -184,16 +184,20 @@ class Client(object):
     PRTG Client.
     """
 
-    def __init__(self, endpoint, username, password):
+    def __init__(self, endpoint, username, password, cache_dir=None):
         """
         :param endpoint: Root URL of the PRTG node (e.g.: 'http://127.0.0.1:8080').
         :param username: PRTG username.
         :param password: Password.
+        :param cache_dir: Directory where the cache file is going to be written.
         """
         self.endpoint = endpoint
         self.username = username
         self.password = password
-        self.cache = Cache()
+        if cache_dir:
+            self.cache = Cache(cache_dir)
+        else:
+            self.cache = Cache()
 
     def query(self, query):
         """

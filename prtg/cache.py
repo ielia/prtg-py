@@ -27,11 +27,12 @@ class Cache(object):
     __FILE_SUFFIX = '.cache'
     __DIR = None
 
-    def __init__(self):
+    def __init__(self, directory=__DIR):
         """
         Creates a temporary file to be used by shelve.
+        :param directory: Directory where the cache file is going to be written.
         """
-        self.cache_fd, self.cache_filename = tempfile.mkstemp(dir=self.__DIR, prefix=self.__FILE_PREFIX,
+        self.cache_fd, self.cache_filename = tempfile.mkstemp(dir=directory, prefix=self.__FILE_PREFIX,
                                                               suffix=self.__FILE_SUFFIX)
         os.close(self.cache_fd)
         # TODO: Figure out how to do this gracefully and not leaving a potential (but insignificant) security hole.
